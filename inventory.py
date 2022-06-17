@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 import argparse
-import sys
+from ast import parse
 import json
-
 import requests
 
 # Constants - to be updated on new cars
 baseUrl = 'https://www.tesla.com/inventory/api/v1/inventory-results'
-models = ["S", "3", "X", "Y"]
-conditions = ["new", "used"]
+models = ['S', '3', 'X', 'Y']
+conditions = ['new', 'used']
 
 # Command line arguments
 parser = argparse.ArgumentParser()
@@ -18,23 +17,20 @@ parser.add_argument('-l', '--limit', metavar="", type=int, default=100, help='Ma
 parser.add_argument('-lat', '--latitude', metavar="", type=float, help='Latitude to use for search')
 parser.add_argument('-lng', '--longitude', metavar="", type=float, help='Longitude to use for search')
 parser.add_argument('-dist', '--distance', metavar="", type=int, help='Max distance in miles from coordinates')
+parser.add_argument('-v', '--verbose', help='Print more detailed information, useful for debugging', action='store_true')
 args = parser.parse_args()
 
 # Validation
 if args.model.upper() not in models:
-    sys.exit(f"Model ${args.model} is not a valid Tesla model.")
+    exit(f"Model ${args.model} is not a valid Tesla model.")
 if args.condition not in conditions:
-    sys.exit(f"Only these conditions are allowed {conditions}")
-if args.latitude is not None and args.longitude is None:
-    sys.exit("Lat / Lng must be provided together")
-if args.latitude is None and args.longitude is not None:
-    sys.exit("Lat / Lng must be provided together")
-if args.distance is not None and args.latitude is None and args.longitude is None:
-    sys.exit("Lat / Lng must be provided with max distance")
+    exit(f"Only these conditions are allowed {conditions}")
+if (args.latitude is not None and args.longitude is None) or (args.latitude is None and args.longitude is not None):
+    exit('Lat / Lng must be provided together')
 if args.distance is not None and args.distance > 200:
-    sys.exit("Max distance can only be set to 200mi at most")
+    exit('Max distance can only be set to 200mi at most')
 
-def getCarsWithOffset(model, offset = 0):
+def get_cars_with_offset(model, offset = 0):
     query = {
         'query': {
             'model': f"m{model.upper()}",
@@ -48,72 +44,70 @@ def getCarsWithOffset(model, offset = 0):
     }
 
     # Geolocation queries for relevance
-    if args.latitude is not None:
-        query['query']['lat'] = args.latitude
-    if args.longitude is not None:
-        query['query']['lng'] = args.longitude
-    if args.distance is not None:
-        query['query']['range'] = args.distance
+    query['query']['lat'] = args.latitude if args.latitude is not None else None
+    query['query']['lng'] = args.longitude if args.longitude is not None else None
+    query['query']['range'] = args.distance if args.distance is not None else None
 
-    r = requests.get(baseUrl, params= {'query': json.dumps(query)})
-    if r.status_code != 200:
-        sys.exit(f"Got bad status on API request ${r.status_code}")
+    req = requests.get(baseUrl, params= {'query': json.dumps(query)})
+    if req.status_code != 200:
+        exit(f"Got bad status on API request ${req.status_code}")
 
-    resp = r.json()
+    resp = req.json()
     
     areMoreAvailable = len(resp['results']) < int(resp['total_matches_found'])
     return areMoreAvailable, resp
 
-def getAllCars(model):
+def get_all_cars(model):
     cars = []
-    moreAvailable = True
-    currentOffset = 0
+    more_available = True
+    current_offset = 0
 
-    while moreAvailable:
-        moreAvailable, resp = getCarsWithOffset(model, offset= currentOffset)
-        currentOffset += len(resp['results'])
+    while more_available:
+        more_available, resp = get_cars_with_offset(model, offset = current_offset)
+        current_offset += len(resp['results'])
         
         if len(resp['results']) > 0:
             cars += resp['results']
 
         if (len(cars) >= args.limit):
-            moreAvailable = False
+            more_available = False
     
     return cars
 
-def printCarDetails(car):
+def print_car_details(car):
+    output = []
+
     # Type and location
-    output = f"{car['TrimName']}"
+    output.append(car['TrimName'])
 
     # Detect pickup location
     if 'SalesMetro' in car:
-        output += f" in {car['SalesMetro']}, {car['StateProvince']}\n"
+        output.append(f" in {car['SalesMetro']}, {car['StateProvince']}\n")
     else:
-        output += " needing transfer\n"
+        output.append('needing transfer\n')
         
     # Price
-    output += f"is selling for {car['TotalPrice']} with {car['Odometer']}mi"
+    output.append(f"is selling for {car['TotalPrice']} with {car['Odometer']}mi")
+
     # Tell people that it is a demo car, and not TRUELY new
-    if car['IsDemo']:
-        output += " and is a demo.\n"
-    else:
-        output += ".\n"
+    output.append(' and is a demo.\n' if car['IsDemo'] else '.\n')
 
     # Purchase URL for easy clicking
-    output += f"https://www.tesla.com/m3/order/{car['VIN']}"
+    output.append(f"https://www.tesla.com/m3/order/{car['VIN']}")
 
     # Separate with a line
-    output += f"\n{'-'*80}"
+    output.append(f"\n{'-'*80}")
 
-    print(output)
+    print(''.join(output))
 
 def main():
-    cars = getAllCars(args.model)
+    cars = get_all_cars(args.model)
 
     for car in cars:
-        printCarDetails(car)
+        print_car_details(car)
 
-    print(f"\n\nFound {len(cars)} available in your search (limited to {args.limit})")
+    if args.verbose:
+        print(f"\n\nFound {len(cars)} available in your search (limited to {args.limit})")
 
 if __name__ == "__main__":
     main()
